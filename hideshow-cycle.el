@@ -64,27 +64,10 @@ Tracks the current level of code folding globally.")
 ;;; Helper functions
 
 (defun hs-cycle--suppress-messages (orig-fun &rest args)
-  "Suppress messages during call to function ORIG-FUN.
-ARGS are the arguments to be passed to ORIG-FUN."
+  "Suppress messages from ORIG-FUN when called with ARGS."
   (let ((inhibit-message t)
         (message-log-max nil))
     (apply orig-fun args)))
-
-(defun hs-cycle--add-suppress-messages-advice (functions)
-  "Add advice to suppress messages for the provided FUNCTIONS.
-FUNCTIONS can be a symbol or a list of symbols representing function
-names."
-  (let ((func-list (if (listp functions) functions (list functions))))
-    (dolist (fn func-list)
-      (advice-add fn :around #'hs-cycle--suppress-messages))))
-
-(defun hs-cycle--remove-suppress-messages-advice (functions)
-  "Remove advice that suppresses messages for the provided FUNCTIONS.
-FUNCTIONS can be a symbol or a list of symbols representing function
-names."
-  (let ((func-list (if (listp functions) functions (list functions))))
-    (dolist (fn func-list)
-      (advice-remove fn #'hs-cycle--suppress-messages))))
 
 (defun hs-cycle--count-levels ()
   "Return the number of nested levels within the current block."
@@ -135,11 +118,11 @@ entirely.
 With prefix argument ARG, reverse the cycling direction.  With double
 prefix argument (C-u C-u), toggle between fully hidden and fully shown."
   (interactive "P")
-  (let ((hs-functions '(hs-hide-block hs-show-block hs-hide-level))
-        (max-depth (or hs-cycle-max-depth (hs-cycle--count-levels)))
+  (let ((max-depth (or hs-cycle-max-depth (hs-cycle--count-levels)))
         (reverse-p (equal arg '(4)))
         (toggle-p (equal arg '(16))))
-    (hs-cycle--add-suppress-messages-advice hs-functions)
+    (dolist (fn '(hs-hide-block hs-show-block hs-hide-level))
+      (advice-add fn :around #'hs-cycle--suppress-messages))
     (unwind-protect
         (save-excursion
           (cond
@@ -203,7 +186,8 @@ prefix argument (C-u C-u), toggle between fully hidden and fully shown."
               (hs-hide-block)
               (setq hs-cycle--depth 0)
               (message "hs-cycle depth: 0"))))))
-      (hs-cycle--remove-suppress-messages-advice hs-functions))))
+      (dolist (fn '(hs-hide-block hs-show-block hs-hide-level))
+        (advice-remove fn #'hs-cycle--suppress-messages)))))
 
 ;;;###autoload
 (defun hs-cycle-global (&optional arg)
@@ -216,11 +200,11 @@ entirely.
 With prefix argument ARG, reverse the cycling direction.  With double
 prefix argument (C-u C-u), toggle between fully hidden and fully shown."
   (interactive "P")
-  (let ((hs-functions '(hs-hide-all hs-show-all hs-hide-level))
-        (max-depth (or hs-cycle-max-depth 3))
+  (let ((max-depth (or hs-cycle-max-depth 3))
         (reverse-p (equal arg '(4)))
         (toggle-p (equal arg '(16))))
-    (hs-cycle--add-suppress-messages-advice hs-functions)
+    (dolist (fn '(hs-hide-all hs-show-all hs-hide-level))
+      (advice-add fn :around #'hs-cycle--suppress-messages))
     (unwind-protect
         (save-excursion
           (cond
@@ -291,7 +275,8 @@ prefix argument (C-u C-u), toggle between fully hidden and fully shown."
               (hs-hide-all)
               (setq hs-cycle--global-depth 0)
               (message "Global hs-cycle depth: 0"))))))
-      (hs-cycle--remove-suppress-messages-advice hs-functions))))
+      (dolist (fn '(hs-hide-all hs-show-all hs-hide-level))
+        (advice-remove fn #'hs-cycle--suppress-messages)))))
 
 (provide 'hideshow-cycle)
 ;;; hideshow-cycle.el ends here
