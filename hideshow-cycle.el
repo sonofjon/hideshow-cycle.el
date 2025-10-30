@@ -47,7 +47,7 @@
   :group 'hideshow)
 
 (defcustom hs-cycle-max-depth 3
-  "The maximum depth level to reveal with `hs-cycle'.
+  "The maximum depth level to reveal with `hs-cycle' and `hs-cycle-global'.
 If nil, cycle through all levels."
   :type '(choice (const :tag "Unlimited" nil) integer)
   :group 'hs-cycle)
@@ -89,7 +89,7 @@ Tracks the current level of code folding globally.")
               (goto-char block-end)))))
       level)))
 
-(defun hs-cycle--already-hidden-any-p ()
+(defun hs-cycle--any-hidden-p ()
   "Return non-nil if any sub-level within the current block is hidden."
   (save-excursion
     (let ((current-pos (point))
@@ -104,6 +104,33 @@ Tracks the current level of code folding globally.")
         (when (hs-already-hidden-p)
           (setq hidden-found t)))
       hidden-found)))
+
+(defun hs-cycle--count-levels-global ()
+  "Return the maximum nesting depth across all blocks in the buffer.
+Scans the entire buffer and returns the deepest level of nesting found."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((max-depth 0))
+      (while (hs-find-next-block hs-block-start-regexp (point-max) nil)
+        ;; Count depth at this block (1 + nested levels within)
+        (let ((block-depth (1+ (hs-cycle--count-levels))))
+          (setq max-depth (max max-depth block-depth)))
+        (forward-char 1))
+      max-depth)))
+
+(defun hs-cycle--any-hidden-global-p ()
+  "Return non-nil if any hideshow blocks are currently hidden.
+Searches the entire buffer for hidden blocks."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((found nil))
+      (while (and (not found)
+                  (hs-find-next-block hs-block-start-regexp
+                                      (point-max) nil))
+        (when (hs-already-hidden-p)
+          (setq found t))
+        (forward-char 1))
+      found)))
 
 ;;; Public functions
 
@@ -128,7 +155,7 @@ prefix argument (C-u C-u), toggle between fully hidden and fully shown."
           (cond
            ;; Double prefix: toggle between fully hidden and fully shown
            (toggle-p
-            (if (hs-cycle--already-hidden-any-p)
+            (if (hs-cycle--any-hidden-p)
                 (progn
                   (hs-show-block)
                   (setq hs-cycle--depth nil)
@@ -140,7 +167,7 @@ prefix argument (C-u C-u), toggle between fully hidden and fully shown."
            (reverse-p
             (cond
              ;; Currently hidden level
-             ((hs-cycle--already-hidden-any-p)
+             ((hs-cycle--any-hidden-p)
               (cond
                ;; Not at min depth: decrease depth
                ((and hs-cycle--depth (> hs-cycle--depth 0))
@@ -165,7 +192,7 @@ prefix argument (C-u C-u), toggle between fully hidden and fully shown."
            (t
             (cond
              ;; Currently hidden level
-             ((hs-cycle--already-hidden-any-p)
+             ((hs-cycle--any-hidden-p)
               (cond
                ;; Not at max depth: increase depth
                ((or (not hs-cycle--depth)
@@ -200,7 +227,7 @@ entirely.
 With prefix argument ARG, reverse the cycling direction.  With double
 prefix argument (C-u C-u), toggle between fully hidden and fully shown."
   (interactive "P")
-  (let ((max-depth (or hs-cycle-max-depth 3))
+  (let ((max-depth hs-cycle-max-depth)
         (reverse-p (equal arg '(4)))
         (toggle-p (equal arg '(16))))
     (dolist (fn '(hs-hide-all hs-show-all hs-hide-level))
@@ -243,20 +270,24 @@ prefix argument (C-u C-u), toggle between fully hidden and fully shown."
                 (message "Global hs-cycle depth: all"))))
              ;; Currently no hidden level: hide from max depth
              (t
-              (setq hs-cycle--global-depth max-depth)
-              (save-excursion
-                (goto-char (point-min))
-                (hs-hide-level hs-cycle--global-depth))
-              (message "Global hs-cycle depth: %s"
-                       hs-cycle--global-depth))))
+              (let ((target-depth (or max-depth
+                                      (hs-cycle--count-levels-global))))
+                (setq hs-cycle--global-depth target-depth)
+                (save-excursion
+                  (goto-char (point-min))
+                  (hs-hide-level hs-cycle--global-depth))
+                (message "Global hs-cycle depth: %s"
+                         hs-cycle--global-depth)))))
            ;; No prefix: normal forward cycling
            (t
             (cond
              ;; Currently hidden level
              (hs-cycle--global-depth
               (cond
-               ;; Not at max depth: increase depth
-               ((< hs-cycle--global-depth max-depth)
+               ;; Something hidden AND not at max depth: increase depth
+               ((and (hs-cycle--any-hidden-global-p)
+                     (or (not max-depth)
+                         (< hs-cycle--global-depth max-depth)))
                 (setq hs-cycle--global-depth
                       (1+ hs-cycle--global-depth))
                 (save-excursion
@@ -264,7 +295,7 @@ prefix argument (C-u C-u), toggle between fully hidden and fully shown."
                   (hs-hide-level hs-cycle--global-depth))
                 (message "Global hs-cycle depth: %s"
                          hs-cycle--global-depth))
-               ;; At max depth: show all blocks
+               ;; At max depth OR nothing hidden: show all
                (t
                 (hs-show-all)
                 (setq this-command nil)
